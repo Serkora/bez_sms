@@ -42,20 +42,20 @@ def set_window_pos(x=0,y=0):
 	# print(cmd)
 	os.system(cmd)
 
-set_window_pos()
+# set_window_pos()
 	
 def game_window(grey=False, path=None, force=False):
 	global GAME_WINDOW_RGB, GAME_WINDOW_GREY, GAME_WINDOW_TIME
 	if (time.time() - GAME_WINDOW_TIME) > REFRESH_RATE or force:
 		GAME_WINDOW_TIME = time.time()
-		try:
-			GAME_WINDOW_RGB = graphics.grab(bbox=GAME_WINDOW_BOX)	
-		except OSError:				# на OSX 10.6 приходится целиком экран снимать и потом обрезать. Впрочем, тут и покерстарс не запускаются, лол.
-			GAME_WINDOW_RGB = graphics.grab().crop(GAME_WINDOW_BOX)
-		# if not path:
-		# 	GAME_WINDOW_RGB = graphics.open_image("images/game/game_window_act.png")
-		# else:
-		# 	GAME_WINDOW_RGB = graphics.open_image(path)
+# 		try:
+# 			GAME_WINDOW_RGB = graphics.grab(bbox=GAME_WINDOW_BOX)	
+# 		except OSError:				# на OSX 10.6 приходится целиком экран снимать и потом обрезать. Впрочем, тут и покерстарс не запускаются, лол.
+# 			GAME_WINDOW_RGB = graphics.grab().crop(GAME_WINDOW_BOX)
+		if not path:
+			GAME_WINDOW_RGB = graphics.open_image("images/game/game_window_act.png")
+		else:
+			GAME_WINDOW_RGB = graphics.open_image(path)
 		
 		GAME_WINDOW_GREY = GAME_WINDOW_RGB.convert("L")
 	if grey:
@@ -235,14 +235,14 @@ def _create_image_with_info(window):
 	cc, val_img = actions.get_cc_images(window)
 	call = recognition.recognize_digits(val_img)
 	draw = PIL.ImageDraw.Draw(window)
-	font = PIL.ImageFont.truetype("data/font.ttf", font_size*1.5)
+	font = PIL.ImageFont.truetype("data/font.ttf", int(font_size*1.5))
 	loc = (540, 490)
 	draw.text(loc, call, (0, 255, 0), font=font)
 	
 	br, val_img, _ = actions.get_br_images(window)
 	bet = recognition.recognize_digits(val_img)
 	draw = PIL.ImageDraw.Draw(window)
-	font = PIL.ImageFont.truetype("data/font.ttf", font_size*1.5)
+	font = PIL.ImageFont.truetype("data/font.ttf", int(font_size*1.5))
 	loc = (660, 490)
 	draw.text(loc, bet, (0, 255, 0), font=font)
 
@@ -258,8 +258,8 @@ def create_image_with_info():
 	# window.show()
 	try:
 		window = _create_image_with_info(window)
-	except:
-		pass
+	except Exception as e:
+		print("ERROR: %s" % (str(e)))
 	return window
 
 # all_info(path="images/game/s2.png")
@@ -286,4 +286,8 @@ def create_image_with_info():
 # t = time.time()
 # logger.info("Digits recognized: %s" % recognition.recognize_digits(s))
 
-# create_image_with_info()
+
+# create_image_with_info().show()
+
+import cProfile
+cProfile.run('create_image_with_info().show()', sort='tottime')

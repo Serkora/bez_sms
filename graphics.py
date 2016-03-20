@@ -47,20 +47,26 @@ def _colour_ratio_rgb(array, col, offset=(0,0), size=None, w_thres=None,
 	total = 0
 	colour = 0
 	if size:
-		height = size[0]
-		width = size[1]
+		height = min(size[0], array.shape[0] - offset[0])
+		width = min(size[1], array.shape[1] - offset[1])
 	else:
-		height = array.shape[0]
-		width = array.shape[1]
+		height = array.shape[0] - offset[0]
+		width = array.shape[1] - offset[1]
 
-	for i in range(height):
-		for j in range(width):
-			t = sum(array[i+offset[0]][j+offset[1]][:3])
-			if w_thres and t > w_thres: continue		# ignore "white" pixels
-			total += t
-			colour += array[i+offset[0]][j+offset[1]][col]
-#	 print("Total: %d, colour: %d" % (total, colour))
-	return colour / total
+	if w_thres:			# TEMP, lazy to think of a way to do this nicely with numpy
+		for i in range(height):
+			for j in range(width):
+				t = sum(array[i+offset[0]][j+offset[1]][:3])
+				if w_thres and t > w_thres: continue		# ignore "white" pixels
+				total += t
+				colour += array[i+offset[0]][j+offset[1]][col]
+	else:
+		slice = array[offset[0]:offset[0]+height,offset[1]:offset[1]+width,:]
+		total = np.sum(slice[:,:,:3])
+		colour = np.sum(slice[:,:,col])
+	
+# 	print("Total: %d, colour: %d" % (total, colour))	
+	return colour / max(total, 0.00001)
 		
 def _colour_ratio_bw_from_greyscale(array, col, offset=(0,0), size=None, 
 		b_thres=50, w_thres=200, *args, **kwargs):
