@@ -42,20 +42,20 @@ def set_window_pos(x=0,y=0):
 	# print(cmd)
 	os.system(cmd)
 
-# set_window_pos()
+set_window_pos()
 	
 def game_window(grey=False, path=None, force=False):
 	global GAME_WINDOW_RGB, GAME_WINDOW_GREY, GAME_WINDOW_TIME
 	if (time.time() - GAME_WINDOW_TIME) > REFRESH_RATE or force:
 		GAME_WINDOW_TIME = time.time()
-# 		try:
-# 			GAME_WINDOW_RGB = graphics.grab(bbox=GAME_WINDOW_BOX)	
-# 		except OSError:				# на OSX 10.6 приходится целиком экран снимать и потом обрезать. Впрочем, тут и покерстарс не запускаются, лол.
-# 			GAME_WINDOW_RGB = graphics.grab().crop(GAME_WINDOW_BOX)
-		if not path:
-			GAME_WINDOW_RGB = graphics.open_image("images/game/game_window_act.png")
-		else:
-			GAME_WINDOW_RGB = graphics.open_image(path)
+		try:
+			GAME_WINDOW_RGB = graphics.grab(bbox=GAME_WINDOW_BOX)	
+		except OSError:				# на OSX 10.6 приходится целиком экран снимать и потом обрезать. Впрочем, тут и покерстарс не запускаются, лол.
+			GAME_WINDOW_RGB = graphics.grab().crop(GAME_WINDOW_BOX)
+		# if not path:
+		# 	GAME_WINDOW_RGB = graphics.open_image("images/game/game_window_act.png")
+		# else:
+		# 	GAME_WINDOW_RGB = graphics.open_image(path)
 		
 		GAME_WINDOW_GREY = GAME_WINDOW_RGB.convert("L")
 	if grey:
@@ -152,12 +152,9 @@ def all_info(path=None):
 		text += "\t%s: %s\n" % (action.type, str(action.value))
 	print(text)
 
-def create_image_with_info():
-	threshold = 115
+def _create_image_with_info(window):
+	threshold = 100
 	font_size = 17
-# 	window = game_window()
-	window = game_window(path="images/game/s7.png")
-# 	window.show()
 	pot = money.pot_image(window)
 	if graphics.colour_ratio(pot, "White") >= 0.01:
 		pot = recognition.recognize_digits(pot, threshold)
@@ -214,18 +211,18 @@ def create_image_with_info():
 				max_red_ratio = graphics.max_colour_ratio(col, "Red")
 				max_green_ratio = graphics.max_colour_ratio(col, "Red")
 				if max_red_ratio > 0.5:
-					print("Max red ratio in each pixel in column %d is: %.3f" % (i, max_red_ratio))
+# 					print("Max red ratio in each pixel in column %d is: %.3f" % (i, max_red_ratio))
 					bet = bet.crop((0, 0, i, bet.height))
 					break
 				if max_green_ratio > 0.334:
-					print("Max green ratio in column %d is: %.3f" % (i, max_green_ratio))
+# 					print("Max green ratio in column %d is: %.3f" % (i, max_green_ratio))
 					bet = bet.crop((0, 0, i-1, bet.height))
 					break
 			for i in range(bet_np.shape[1] // 2, -1, -1):
 				col = bet_np[:,i:i+1]
 				max_red_ratio = graphics.max_colour_ratio(col, "Red")
 				if max_red_ratio > 0.5:
-					print("Max red ratio in each pixel in colum %d is : %.3f" % (i, max_red_ratio))
+# 					print("Max red ratio in each pixel in colum %d is : %.3f" % (i, max_red_ratio))
 					bet = bet.crop((i+1, 0, bet.width, bet.height))
 					break
 			text = "PLACED A BET: %s" % recognition.recognize_digits(bet, threshold)
@@ -238,15 +235,15 @@ def create_image_with_info():
 	cc, val_img = actions.get_cc_images(window)
 	call = recognition.recognize_digits(val_img)
 	draw = PIL.ImageDraw.Draw(window)
-	font = PIL.ImageFont.truetype("data/font.ttf", font_size)
-	loc = (540, 500)
+	font = PIL.ImageFont.truetype("data/font.ttf", font_size*1.5)
+	loc = (540, 490)
 	draw.text(loc, call, (0, 255, 0), font=font)
 	
 	br, val_img, _ = actions.get_br_images(window)
 	bet = recognition.recognize_digits(val_img)
 	draw = PIL.ImageDraw.Draw(window)
-	font = PIL.ImageFont.truetype("data/font.ttf", font_size)
-	loc = (660, 500)
+	font = PIL.ImageFont.truetype("data/font.ttf", font_size*1.5)
+	loc = (660, 490)
 	draw.text(loc, bet, (0, 255, 0), font=font)
 
 	
@@ -254,7 +251,16 @@ def create_image_with_info():
 	
 # 	window.show()
 	return window
-	
+
+def create_image_with_info():
+	window = game_window()
+	# window = game_window(path="images/game/s7.png")
+	# window.show()
+	try:
+		window = _create_image_with_info(window)
+	except:
+		pass
+	return window
 
 # all_info(path="images/game/s2.png")
 # create_image_with_info()
