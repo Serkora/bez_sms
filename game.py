@@ -1,6 +1,7 @@
 import os
 import time
 import sys
+import pickle
 
 import graphics
 import actions
@@ -8,15 +9,16 @@ import cards
 import players
 import dealer
 import money
-
-from threading import Thread
-from multiprocessing import Process
+import recognition
 
 import PIL
 import PIL.ImageDraw
 
-import recognition
-import pickle
+from threading import Thread
+from multiprocessing import Process
+
+from logger import Logger
+logger = Logger(__name__, Logger.DEBUG)
 
 GAME_WINDOW_RGB = None
 GAME_WINDOW_GREY = None
@@ -155,21 +157,21 @@ def create_image_with_info():
 	font_size = 17
 # 	window = game_window()
 	window = game_window(path="images/game/s7.png")
-	window.show()
+# 	window.show()
 	pot = money.pot_image(window)
 	if graphics.colour_ratio(pot, "White") >= 0.01:
-		pot = graphics.recognize_digits(pot, threshold)
+		pot = recognition.recognize_digits(pot, threshold)
 	else:
 		pot = "NO POT!"
 	draw = PIL.ImageDraw.Draw(window)
-	font = PIL.ImageFont.truetype("font.ttf", font_size)
+	font = PIL.ImageFont.truetype("data/font.ttf", font_size)
 	draw.text((330, 270),"POT SIZE: %s" % pot,(255,0,0), font=font)
 	del draw
 	
 	own_stack = money.own_stack_image(window)
-	own_stack = graphics.recognize_digits(own_stack, threshold)
+	own_stack = recognition.recognize_digits(own_stack, threshold)
 	draw = PIL.ImageDraw.Draw(window)
-	font = PIL.ImageFont.truetype("font.ttf", font_size)
+	font = PIL.ImageFont.truetype("data/font.ttf", font_size)
 	draw.text((330, 435),"MY STACK: %s" % own_stack,(255,0,0), font=font)
 	del draw
 	
@@ -177,7 +179,7 @@ def create_image_with_info():
 	loc = dealer.DEALER_OFFSETS[seat]
 	loc = (loc[0]-60, loc[1] + 20)
 	draw = PIL.ImageDraw.Draw(window)
-	font = PIL.ImageFont.truetype("font.ttf", font_size)
+	font = PIL.ImageFont.truetype("data/font.ttf", font_size)
 	draw.text(loc,"DEALER HERE (player %d)!" % (seat + 1),(255,0,0), font=font)
 	del draw	
 
@@ -188,15 +190,15 @@ def create_image_with_info():
 		else:
 			text = "PLAYER INACTIVE"
 		draw = PIL.ImageDraw.Draw(window)
-		font = PIL.ImageFont.truetype("font.ttf", font_size)
+		font = PIL.ImageFont.truetype("data/font.ttf", font_size)
 		loc = (p.card_box.left-20, p.card_box.top-20)
 		draw.text(loc, text, (255, 0, 0), font=font)
 		del draw
 		
 		stack = window.crop(p.stack_box)
-		stack = graphics.recognize_digits(stack, threshold)
+		stack = recognition.recognize_digits(stack, threshold)
 		draw = PIL.ImageDraw.Draw(window)
-		font = PIL.ImageFont.truetype("font.ttf", font_size)
+		font = PIL.ImageFont.truetype("data/font.ttf", font_size)
 		loc = (p.stack_box.left-20, p.stack_box.top+20)
 		draw.text(loc, "STACK: %s" % stack, (255, 0, 0), font=font)
 		del draw
@@ -226,37 +228,56 @@ def create_image_with_info():
 					print("Max red ratio in each pixel in colum %d is : %.3f" % (i, max_red_ratio))
 					bet = bet.crop((i+1, 0, bet.width, bet.height))
 					break
-			text = "PLACED A BET: %s" % graphics.recognize_digits(bet, threshold)
+			text = "PLACED A BET: %s" % recognition.recognize_digits(bet, threshold)
 
 		draw = PIL.ImageDraw.Draw(window)
-		font = PIL.ImageFont.truetype("font.ttf", font_size)
+		font = PIL.ImageFont.truetype("data/font.ttf", font_size)
 		loc = (p.bet_box.left-40, p.bet_box.top-20 + (int(j == 2) * 40))
 		draw.text(loc, text, (255, 0, 0), font=font)
 	
+	cc, val_img = actions.get_cc_images(window)
+	call = recognition.recognize_digits(val_img)
+	draw = PIL.ImageDraw.Draw(window)
+	font = PIL.ImageFont.truetype("data/font.ttf", font_size)
+	loc = (540, 500)
+	draw.text(loc, call, (0, 255, 0), font=font)
+	
+	br, val_img, _ = actions.get_br_images(window)
+	bet = recognition.recognize_digits(val_img)
+	draw = PIL.ImageDraw.Draw(window)
+	font = PIL.ImageFont.truetype("data/font.ttf", font_size)
+	loc = (660, 500)
+	draw.text(loc, bet, (0, 255, 0), font=font)
+
+	
 # 	my_card = cards.
 	
-	window.show()
+# 	window.show()
+	return window
 	
 
 # all_info(path="images/game/s2.png")
 # create_image_with_info()
 # for i in range(20):
 # 	build_recognition_db(90+i, "images/game/s4.png", strings="s4.txt", show=False)
-build_recognition_db(110, "images/game/s7.png", strings="s7.txt", show=False, neural=True)
-build_recognition_db(110, "images/game/s4.png", strings="s4.txt", show=False, neural=True)
-build_recognition_db(110, "images/game/s3.png", strings="s3.txt", show=False, neural=True)
-build_recognition_db(110, "images/game/s2.png", strings="s2.txt", show=False, neural=True)
+# build_recognition_db(110, "images/game/s7.png", strings="s7.txt", show=False, neural=True)
+# build_recognition_db(110, "images/game/s4.png", strings="s4.txt", show=False, neural=True)
+# build_recognition_db(110, "images/game/s3.png", strings="s3.txt", show=False, neural=True)
+# build_recognition_db(110, "images/game/s2.png", strings="s2.txt", show=False, neural=True)
 
-recognition.train(100)
+# recognition.train(100)
 
-with open(recognition.NET_PATH, 'wb') as f:
-	pickle.dump(recognition.NETWORK, f)
+# with open(recognition.NET_PATH, 'wb') as f:
+# 	pickle.dump(recognition.NETWORK, f)
 	
-for img in ["s7.png", "8120.png", "75814.png"]:
-	w = game_window(path="images/game/%s" % img)
-	p = money.pot_image(w)
-	print("Digits recognized: ", recognition.recognize_digits(p))
+# for img in ["s7.png", "8120.png", "75814.png"]:
+# 	w = game_window(path="images/game/%s" % img)
+# 	p = money.pot_image(w)
+# 	logger.info("Digits recognized: %s" % recognition.recognize_digits(p))
+# 
+# w = game_window(path="images/game/s2.png")
+# s = money.own_stack_image(w)
+# t = time.time()
+# logger.info("Digits recognized: %s" % recognition.recognize_digits(s))
 
-w = game_window(path="images/game/s2.png")
-s = money.own_stack_image(w)
-print("Digits recognized: ", recognition.recognize_digits(s))
+# create_image_with_info()
