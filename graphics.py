@@ -1,6 +1,7 @@
 import os
 import os.path
 import time
+import sys
 from collections import namedtuple, defaultdict
 
 import PIL
@@ -53,17 +54,17 @@ def _colour_ratio_rgb(array, col, offset=(0,0), size=None, w_thres=None,
 		height = array.shape[0] - offset[0]
 		width = array.shape[1] - offset[1]
 
-	if w_thres:			# TEMP, lazy to think of a way to do this nicely with numpy
-		for i in range(height):
-			for j in range(width):
-				t = sum(array[i+offset[0]][j+offset[1]][:3])
-				if w_thres and t > w_thres: continue		# ignore "white" pixels
-				total += t
-				colour += array[i+offset[0]][j+offset[1]][col]
+	if not w_thres:
+		w_thres = 1500
+	
+	slice = array[offset[0]:offset[0]+height,offset[1]:offset[1]+width,:3]
+
+	if w_thres:
+		slice = slice[np.sum(slice, axis=2) <= w_thres]
+		colour = np.sum(slice[:,col])
 	else:
-		slice = array[offset[0]:offset[0]+height,offset[1]:offset[1]+width,:]
-		total = np.sum(slice[:,:,:3])
 		colour = np.sum(slice[:,:,col])
+	total = np.sum(slice)
 	
 # 	print("Total: %d, colour: %d" % (total, colour))	
 	return colour / max(total, 0.00001)
