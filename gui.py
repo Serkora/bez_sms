@@ -122,8 +122,3 @@ if __name__ == "__main__":
 	window = Game(*game.GAME_WINDOW_SIZE)
 	pyglet.clock.schedule_interval(lambda _: None, 1/150)
 	pyglet.app.run()
-# 	w = game.game_window(path="images/game/s7.png")
-# 	pil_image = w
-# 	w.show()
-# 	im = pyglet.image.load("images/game/s7.png")
-# 	image = pyglet.image.ImageData(pil_image.width, pil_image.height, pil_image.mode, pil_image.tobytes(), pitch=im.pitch)
