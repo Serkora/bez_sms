@@ -54,9 +54,6 @@ def _colour_ratio_rgb(array, col, offset=(0,0), size=None, w_thres=None,
 		height = array.shape[0] - offset[0]
 		width = array.shape[1] - offset[1]
 
-	if not w_thres:
-		w_thres = 1500
-	
 	slice = array[offset[0]:offset[0]+height,offset[1]:offset[1]+width,:3]
 
 	if w_thres:
