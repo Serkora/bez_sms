@@ -380,7 +380,7 @@ def np_to_pil(arr, size=None, mode=None):
 
 	if len(arr.shape) < 2:
 		arr = arr.reshape(1, arr.shape[0])
-	elif len(arr.shape) < 3 and mode and mode in "RGBA":
+	elif len(arr.shape) < 3 and mode and mode in "RGBA":	# if one row/col and numpy removed the third dimension
 		arr = arr.reshape(1, arr.shape[0], arr.shape[1])
 
 	if not size:
@@ -407,7 +407,8 @@ def np_to_pil(arr, size=None, mode=None):
 	except Exception as e:
 		logger.error("Couldn't convert numpy array to PIL image!"
 			"Returning one black pixel. Error: %s" % str(e))
-		arr = np.array([[0]*len(mode)])
+		shape = (1,1,len(mode)) if len(mode) > 1 else (1,1)
+		arr = np.array([[0]*len(mode)]).reshape(shape)
 		img = PIL.Image.frombuffer(mode, (1,1), arr.tostring(),'raw', mode, 0, 1)
 
 	return img

@@ -119,7 +119,7 @@ def build_recognition_db(binary_threshold, window=None, strings=None, show=False
 
 def all_info(path=None):
 	window = game_window(path=path)
-	window.show()
+# 	window.show()
 	pot = money.pot(window)
 	own_stack = money.own_stack(window)
 	own_cards_image = cards.own_cards_image(window)
@@ -131,26 +131,26 @@ def all_info(path=None):
 	plrs = players.create_players()
 	info = []
 	for i, p in enumerate(plrs):
-		text = "Player %d: \n" % i
+		text = "Player %d: %s\n" % (i, str(p.is_in_game(window)))
 		text += "\tStack: %s\n" % str(p.get_stack(window))
 		text += "\tBet: %s" % str(p.get_bet(window))
 		info.append(text)
 	
 	
-	print("\n")
-	print("pot: ", pot)
-	print("my stack: ", own_stack)
-	print("own cards: ", own_cards)
-	print("flop: ", flop)
-	print("turn: ", turn)
-	print("river: ", river)
-	for text in info:
-		print(text)
-
+# 	print("\n")
+# 	print("pot: ", pot)
+# 	print("my stack: ", own_stack)
+# 	print("own cards: ", own_cards)
+# 	print("flop: ", flop)
+# 	print("turn: ", turn)
+# 	print("river: ", river)
+# 	for text in info:
+# 		print(text)
+# 
 	text = "Actions:\n"
 	for action in actions.get_actions(window):
 		text += "\t%s: %s\n" % (action.type, str(action.value))
-	print(text)
+# 	print(text)
 
 def _create_image_with_info(window):
 	threshold = 100
@@ -246,14 +246,19 @@ def _create_image_with_info(window):
 	loc = (660, 490)
 	draw.text(loc, bet, (0, 255, 0), font=font)
 
+	own_cards_image = cards.own_cards_image(window)
+	own_cards = cards.own_cards(own_cards_image)
+	flop = [cards.table_card(window, i) for i in range(3)]
+	turn = cards.table_card(window, 3)
+	river = cards.table_card(window, 4)
 	
 # 	my_card = cards.
 	
 # 	window.show()
 	return window
 
-def create_image_with_info():
-	window = game_window()
+def create_image_with_info(path=None):
+	window = game_window(path=path)
 	# window = game_window(path="images/game/s7.png")
 	# window.show()
 	try:
@@ -286,8 +291,11 @@ def create_image_with_info():
 # t = time.time()
 # logger.info("Digits recognized: %s" % recognition.recognize_digits(s))
 
-
-# create_image_with_info().show()
+# t = time.time()
+# for i in range(10):
+# 	create_image_with_info()
+# 	all_info(path="images/game/s2.png")
+# print("Mean time: %.3f" % ((time.time() - t) / 10))
 
 import cProfile
 cProfile.run('create_image_with_info().show()', sort='tottime')

@@ -40,15 +40,22 @@ def colour_ratio_rgb_opt(array, col, offset=(0,0), size=None, w_thres=None,
 		height = array.shape[0] - offset[0]
 		width = array.shape[1] - offset[1]
 
-	slice = array[offset[0]:offset[0]+height,offset[1]:offset[1]+width,:]
+	slice = array[offset[0]:offset[0]+height,offset[1]:offset[1]+width,:3]
+# 	if w_thres:
+# 		for row in slice:
+# 			for pixel in row:
+# 				if np.sum(pixel[:3]) > w_thres:
+# 					pixel[:3] = np.array([0,0,0])
+	if w_thres:
+		slice = slice[np.sum(slice, axis=2) <= w_thres]
+		colour = np.sum(slice[:,col])
+# 		total = np.sum(np.sum(slice[:,:], axis=2) <= w_thres)
+# 		colour = np.sum(np.sum(slice[:,:], axis=2) <= w_thres)
+	else:
+		colour = np.sum(slice[:,:,col])
 
-# 	total = np.sum(array[offset[0]:offset[0]+height,offset[1]:offset[1]+width,:3])
-# 	colour = np.sum(array[offset[0]:offset[0]+height,offset[1]:offset[1]+width,col])
-
-	total = np.sum(slice[:,:,:3])
-	colour = np.sum(slice[:,:,col])
-	
-	
+	total = np.sum(slice)	
+# 	print(slice[:,:,:3] > w_thres)
 	
 
 # 	for i in range(height):
@@ -65,5 +72,5 @@ im.show()
 
 im_np = graphics.pil_to_np(im)
 
-print(colour_ratio_rgb(im_np, "Red", offset=(5,7), size=(4,4), w_thres=6000))
-print(colour_ratio_rgb_opt(im_np, "Red", offset=(5,7), size=(4,4), w_thres=600))
+print(colour_ratio_rgb(im_np, "Red", offset=(5,7), size=(4,4), w_thres=None))
+print(colour_ratio_rgb_opt(im_np, "Red", offset=(5,7), size=(4,4), w_thres=None))
