@@ -19,10 +19,13 @@ class Table(object):
 			plrs.append(Player(self, seat, seat in ai_seats))
 		return plrs
 	
-	def update(self):
+	def update(self, cycle=False):
 		self.max_bet = max(p.bet for p in self.players)
 		self.turn_pot = sum(p.bet for p in self.players)
 		if len(self.get_info()[0]) == 1:
+			return True
+		bets = (p.bet for p in self.players if p.active)
+		if len(set(bets)) == 1 and cycle:
 			return True
 	
 	def get_info(self):
@@ -35,35 +38,48 @@ class Table(object):
 		self.players.append(self.players.pop(0))		# second player becomes first etc
 	
 	def start_turn(self, turn):
-		print("Starting turn %s" % turn)
+		print(" === Starting turn %s ===" % turn)
 		if turn == "preflop":
 			self.round_pot = 0
 			self.turn_pot = 0
-			self.max_bet = None
-			for p in self.players: 
-				p.bet = 0 
-				p.active = True
+			self.max_bet = 0
+			for player in self.players: 
+				player.bet = 0 
+				player.active = True
 			self.deal_dice()
 			self.blinds()
 		elif turn == "flop":
 			self.dice = tuple(np.random.choice(range(1,7),5))	
 	
 	def make_turn(self, turn):
-		finished = False
-		while not finished:
-			if self.update():
-				finished = True
+		cycle = False
+		i = 0
+		self.update()
+		while True:
+			if i == len(self.players) - 1:
+				cycle = True
+			if self.players[i].active:
+				self.players[i].turn(self, turn)
+			if self.update(cycle):
 				break
-			for player in self.players:
-				if not player.active:
-					continue
-				player.turn(self, turn)
-				if self.update():
-					finished = True
-					break
-			bets = (p.bet for p in self.players if p.active)
-			if len(set(bets)) == 1:
-				break
+			i = (i + 1) % len(self.players)
+		
+		
+# 		finished = False		
+# 		while not finished:
+# 			if self.update(cycle):
+# 				finished = True
+# 				break
+# 			for player in self.players:
+# 				if not player.active:
+# 					continue
+# 				player.turn(self, turn)
+# 				if self.update(cycle):
+# 					finished = True
+# 					break
+# 			bets = (p.bet for p in self.players if p.active)
+# 			if len(set(bets)) == 1:
+# 				break
 	
 	def end_turn(self, turn):
 		for player in self.players:
@@ -80,6 +96,7 @@ class Table(object):
 
 		if turn == "flop":
 			highest = ((None, (-1, (0,0,0,0,0))),)		# ((player, best_hand), )
+			i = 0
 			for player in self.players:
 				best_hand = player.calculate_hand_score(self.dice)
 				print("Player %s best hand: %s, dice: " % (player.seat, 
@@ -87,7 +104,7 @@ class Table(object):
 				if best_hand[0] > highest[0][1][0]:
 					highest = ((player, best_hand),)
 				elif best_hand[0] == highest[0][1][0]:
-					cmp = player.compare_same_combination(best_hand[0], highest[0][1][1])
+					cmp = player.compare_same_combination(best_hand[0], best_hand[1], highest[0][1][1])
 					if cmp == 1:
 						highest = ((player, best_hand),)
 					elif cmp == 0:
@@ -97,8 +114,8 @@ class Table(object):
 					self.round_pot, COMBINATIONS[highest[0][1][0]]), highest[0][1][1])
 				highest[0][0].stack += self.round_pot
 			else:
-				print("Several players won: ", highest)
 				split = self.round_pot // len(highest)
+				print("Several players won %d coins each: " % split, highest)
 				for e in highest:
 					e[0].stack += split
 			return True
@@ -269,6 +286,7 @@ class Player(object):
 		active, dice, pot, max_bet = self.table.get_info()
 		print("Active players: %d, Dice: %s, Pot: %d, Max bet: %d" % (
 			len(active), dice, pot, max_bet))
+# 		print(active, dice, pot, max_bet)
 		print("Your dice: %s, Your stack: %d, your current bet: %d" % (
 			str(self.dice), self.stack, self.bet))
 		choices = {0: "Fold", 1: "Check", 2: "Call %d" % table.max_bet, 3: "Bet bb", 4: "raise to 2 bb"}
