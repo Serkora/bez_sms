@@ -1,7 +1,9 @@
 import os
 import os.path
 import time
-import pickle
+import sys
+from collections import namedtuple, defaultdict
+
 import PIL
 import PIL.Image
 import PIL.ImageDraw
@@ -10,41 +12,14 @@ import PIL.ImageOps
 import pyscreenshot as pys
 # import pytesseract as pyt
 import numpy as np
-import scipy
-import scipy.ndimage
-from collections import namedtuple, defaultdict
-import recognition
 
+import recognition
+from logger import Logger
+logger = Logger(__name__, Logger.INFO)
 
 Offset = namedtuple("Offset", ['x','y'])
 Size = namedtuple("Size", ['height', 'width'])
 Box = namedtuple("Box", ['left', 'top', 'right', 'bottom'])
-Centroid =  namedtuple("Centroid", ['x','y','ratio'])
-
-class Ratio(object):
-	def __init__(self, min, max):
-		self.min = min
-		self.max = max
-	
-	def __repr__(self):
-		return "min = %.3f, max = %.3f" % (self.min, self.max)
-
-if os.path.isfile("ratios.dt"):
-# 	print("Loading ratios from disk")
-	with open("ratios.dt", 'rb') as f:
-		OCR_RATIOS = pickle.load(f)
-	chars = ['0','1','2','3','4','5','6','7','8','9','.','$']
-	keys = OCR_RATIOS['background'].keys()
-	missing = []
-	for char in chars:
-		if char not in keys:
-			missing.append(char)
-	if missing:
-		print("MISSING CHARACTERS IN THE RECOGNITION DB: %s" % ", ".join(missing))
-else:
-	OCR_RATIOS = {'categories': ['background', 'centroid', 'topbottom', 'leftright'],
-				'background': defaultdict(int), 'centroid': defaultdict(int), 
-				'topbottom': defaultdict(int), 'leftright': defaultdict(int)}
 
 	### Image information ### 
 
@@ -73,20 +48,23 @@ def _colour_ratio_rgb(array, col, offset=(0,0), size=None, w_thres=None,
 	total = 0
 	colour = 0
 	if size:
-		height = size[0]
-		width = size[1]
+		height = min(size[0], array.shape[0] - offset[0])
+		width = min(size[1], array.shape[1] - offset[1])
 	else:
-		height = array.shape[0]
-		width = array.shape[1]
+		height = array.shape[0] - offset[0]
+		width = array.shape[1] - offset[1]
 
-	for i in range(height):
-		for j in range(width):
-			t = sum(array[i+offset[0]][j+offset[1]][:3])
-			if w_thres and t > w_thres: continue		# ignore "white" pixels
-			total += t
-			colour += array[i+offset[0]][j+offset[1]][col]
-#	 print("Total: %d, colour: %d" % (total, colour))
-	return colour / total
+	slice = array[offset[0]:offset[0]+height,offset[1]:offset[1]+width,:3]
+
+	if w_thres:
+		slice = slice[np.sum(slice, axis=2) <= w_thres]
+		colour = np.sum(slice[:,col])
+	else:
+		colour = np.sum(slice[:,:,col])
+	total = np.sum(slice)
+	
+# 	print("Total: %d, colour: %d" % (total, colour))	
+	return colour / max(total, 0.00001)
 		
 def _colour_ratio_bw_from_greyscale(array, col, offset=(0,0), size=None, 
 		b_thres=50, w_thres=200, *args, **kwargs):
@@ -202,28 +180,6 @@ def _colour_sections_bw(array, col, b_thres=50, w_thres=200):
 	elif col == "White": return w_counter
 	elif col == "Grey": return g_counter
 
-def top_bottom_ratio(image, threshold=0):
-	arr = pil_to_np(image, mode="L")
-	width = arr.shape[0]
-	middle = width // 2
-	odd = int(width % 2 != 0)
-		
-	top = arr[0:middle+odd]
-	bottom = arr[middle:]
-	
-	return np.sum(top <= threshold) / np.sum(bottom <= threshold)
-
-def left_right_ratio(image, threshold=0):
-	arr = pil_to_np(image, mode="L")
-	width = arr.shape[1]
-	middle = width // 2
-	odd = int(width % 2 != 0)
-		
-	left = arr[:,0:middle+odd]
-	right = arr[:,middle:]
-
-	return np.sum(left <= threshold) / np.sum(right <= threshold)	
-
 def bounding_box(image, threshold=None, inv=False):
 	if not threshold: threshold = 40
 	if type(image) != np.ndarray:
@@ -257,6 +213,28 @@ def bounding_box(image, threshold=None, inv=False):
 
 	return box
 
+def top_bottom_ratio(image, threshold=0):
+	arr = pil_to_np(image, mode="L")
+	width = arr.shape[0]
+	middle = width // 2
+	odd = int(width % 2 != 0)
+		
+	top = arr[0:middle+odd]
+	bottom = arr[middle:]
+	
+	return np.sum(top <= threshold) / np.sum(bottom <= threshold)
+
+def left_right_ratio(image, threshold=0):
+	arr = pil_to_np(image, mode="L")
+	width = arr.shape[1]
+	middle = width // 2
+	odd = int(width % 2 != 0)
+		
+	left = arr[:,0:middle+odd]
+	right = arr[:,middle:]
+
+	return np.sum(left <= threshold) / np.sum(right <= threshold)	
+
 def centroid(image):
 	arr = pil_to_np(image, mode="L")
 	total = np.sum(arr)
@@ -272,27 +250,6 @@ def centroid(image):
 	loc = (x_sum // total, y_sum // total)
 	centroid = Centroid(*loc, ratio=loc[1]/loc[0])
 	return centroid
-
-def ocr_ratios(obj, height=100, show=False, image=True):
-	bbox = bounding_box(obj)
-	obj = obj.crop(bbox)
-	if show: obj.show()
-	
-	back_obj = obj.resize((100,100), PIL.Image.ANTIALIAS).convert(mode="L")
-	wr = colour_ratio(back_obj, "White")
-	
-	width = int(obj.width * (100 / obj.height))
-	obj = obj.resize((width, 100)).convert(mode="L")
-# 	if show: obj.show()
-	obj = image_filter(obj, "low", 220)
-	cc = centroid(obj)
-	tb = top_bottom_ratio(obj)
-	lr = left_right_ratio(obj)
-	
-	if image:
-		return obj, wr, cc.ratio, tb, lr
-	else:
-		return wr, cc.ratio, tb, lr
 
 	### Operations on images ###
 
@@ -362,12 +319,15 @@ def merge_pixel_colours(pixel_bg, pixel_fg):
 	
 	return np.array([r,g,b,a])
 
-def overlay_rgba_images(img_bg, img_fg, loc):
+def overlay_rgba_images(img_bg, img_fg, loc, merge=True):
 	bg = np.array(img_bg, np.uint8)
 	fg = np.array(img_fg, np.uint8)
 	for i in range(img_fg.height):
 		for j in range(img_fg.width):
-			bg[i+loc[0]][j+loc[1]] = merge_pixel_colours(bg[i+loc[0]][j+loc[1]], fg[i][j])
+			if merge:
+				bg[i+loc[0]][j+loc[1]] = merge_pixel_colours(bg[i+loc[0]][j+loc[1]], fg[i][j])
+			else:
+				bg[i+loc[0]][j+loc[1]] = fg[i][j]
 
 	return np_to_pil(bg, img_bg.size)
 	
@@ -433,8 +393,8 @@ def np_to_pil(arr, size=None, mode=None):
 		elif arr.shape[2] == 4:
 			mode = "RGBA"
 	if not mode:
-		raise ValueError("Image mode could have been inferred from array shape.")
-
+		raise ValueError("Image mode couldn't have been inferred from array shape.")
+		
 	if mode in "RGBA":								# covers both RGB and RGBA
 		arr = arr.reshape(arr.shape[0]*arr.shape[1], arr.shape[2])
 		if len(arr[0]) == 3 and mode == "RGBA":		# RGB -> RGBA
@@ -442,13 +402,26 @@ def np_to_pil(arr, size=None, mode=None):
 	elif mode == "L":
 		arr = arr.reshape(arr.shape[0] * arr.shape[1])
 
-	return PIL.Image.frombuffer(mode, size, arr.tostring(), 'raw', mode, 0, 1)
+	try:		
+		img = PIL.Image.frombuffer(mode, size, arr.tostring(), 'raw', mode, 0, 1)
+	except Exception as e:
+		logger.error("Couldn't convert numpy array to PIL image!"
+			"Returning one black pixel. Error: %s" % str(e))
+		arr = np.array([[0]*len(mode)])
+		img = PIL.Image.frombuffer(mode, (1,1), arr.tostring(),'raw', mode, 0, 1)
+
+	return img
 
 def pil_to_np(image, mode=None, bits=np.uint8):
 	if type(image) != np.ndarray:
 		if mode and image.mode != mode:
 			image = image.convert(mode=mode)
-		arr = np.array(image, bits)
+		try:
+			arr = np.array(image, bits)
+		except Exception as e:
+			logger.error("Couldn't convert PIL image to numpy array!"
+				"Returning one empty array. Error: %s" % str(e))		
+			arr = np.array([[]], bits)
 	else:
 		arr = image
 
@@ -492,197 +465,35 @@ def image_characters(image, binary_threshold, normalize=True, inv=True, show=Fal
 	
 	return chars
 
-def update_recognition_db(image, binary_threshold, show=True, ics=None, show_char=False, silent=True, neural=False, *args, **kwargs):
+def update_recognition_db(image, binary_threshold, show=True, ics=None, show_char=False, *args, **kwargs):
+	recognition.update_training_set(image, ics, binary_threshold, *args, **kwargs)
 
-	chars = image_characters(image, binary_threshold, show=show, *args, **kwargs)
-	
-	if not ics:
-		ics = input("what are the characters in this picture? ")
-	elif not silent:
-		print("Image is supposed to have the following string: %s" % ics)
-	
-	if len(ics) != len(chars):
-		print("The number of characters is not the same! Dou suru kana~ Press enter to skip this image.")
-		input()
-		return
+# 	chars = image_characters(image, binary_threshold, show=show, *args, **kwargs)
+# 	
+# 	if not ics:
+# 		ics = input("What are the characters in this picture? ")
+# 	logger.debug("Image is supposed to have the following string: %s" % ics)
+# 	
+# 	if len(ics) != len(chars):
+# 		logger.error(("The number of characters is not the same ("
+# 			"recognized: %d, supposed to be: %d ('%s'))! Dou suru kana~ "
+# 			"Skipping this image.") % (len(chars), len(ics), ics))
+# 		input()
+# 		return
+# 
+# 	for i, char in enumerate(chars):
+# 		c = ics[i]
+# # 		np_to_pil(char).show()
+# 	
+# 		if c in "0123456789":
+# 			recognition.update_training_set(char, c)
+# 			continue
+# 		else:
+# 			logger.info("Not adding char %s to the training set" % c)
+# 			continue
 
-	for i, char in enumerate(chars):
-		c = ics[i]
-# 		np_to_pil(char).show()
-	
-		if neural:
-			if c in "0123456789":
-				recognition.update_training_set(char, c)
-				continue
-			else:
-				continue
-
-		exp_data = ocr_ratios(char, image=False, *args, **kwargs)
-		wr, cc, tb, lr = exp_data
-		
-# 		print("Adding info about char '%s'" % c)
-# 		print("wr: ", wr, "\ncc: ", cc, "\ntb: ", tb, "\nlr: ", lr)
-		
-		exp_data = [wr, cc, tb, lr]
-# 		cats = ['background', 'centroid', 'topbottom', 'leftright']
-		cats = OCR_RATIOS['categories']
-		
-		for ratio, cat in zip(exp_data, cats):	
-			min_ratio = int(ratio * 200) / 200
-			max_ratio = int((ratio + 0.005) * 200) / 200
-# 			print("Checking db for category %s, ratio: %.3f - %.3f." % (cat, min_ratio, max_ratio))
-			db = OCR_RATIOS[cat][c]
-# 			print("db before: ", db)
-			if not db:
-				db = Ratio(min=min_ratio, max=max_ratio)
-				OCR_RATIOS[cat][c] = db
-			else:
-				if max_ratio > db.max: db.max = max_ratio
-				elif min_ratio < db.min: db.min = min_ratio
-# 			print("db after: ", db)
-# 			input()
-		
-# 		print(OCR_RATIOS)
-		
-# 	input()
-	with open("ratios.dt", 'wb') as f:
-		pickle.dump(OCR_RATIOS, f)
-
-def recognize_digits(image, binary_threshold=100, neural=False, *args, **kwargs):
-	digits = ""
-	
-	chars = image_characters(image, binary_threshold, *args, **kwargs)
-	
-	if neural:
-		return recognition.recoginze_digits(image, binary_threshold, *args, **kwargs)
-	
-	for i, char in enumerate(chars):
-
-# 		choices = ['0','1','2','3','4','5','6','7','8','9','.','$']
-		choices = list(OCR_RATIOS['background'].keys())
-		if len(choices) < 1:
-			raise ValueError("You you don't have any characters' info in the database, "
-				"digit recognition won't work, dummy.")
-
-		char, *ratios = ocr_ratios(char, show=False, image=True)
-		cats = OCR_RATIOS['categories']
-		
-		for ratio, cat in zip(ratios, cats):
-# 			print("category: %s, data ratio: %.3f" % (cat, ratio))
-			for c, db_ratio in OCR_RATIOS[cat].items():
-				if c not in choices: continue
-# 				print("checking char " + c + ", ratio: ", db_ratio)
-				if ratio < db_ratio.min or ratio > db_ratio.max:
-# 					print("Outisde the limits, removing char")
-					choices.remove(c)
-# 			print("Digits left after %s: %s" % (cat, ", ".join(choices)))
-# 			input()
-		
-		# ugly clean-up
-# 		if len(choices) > 1 and digits and "$" in choices:
-# 			choices.remove("$")
-# 		if all(d in choices for d in ['0','6']):
-# 			if not six_or_zero(char):	
-# 				choices.remove('6')
-# 			else:
-# 				choices.remove('0')
-# 		if all(d in choices for d in ['6','8']):
-# 			if not six_or_eight(char):	
-# 				choices.remove('6')
-# 			else:
-# 				choices.remove('8')
-		if all(d in choices for d in ['0','8']):
-			if not eight_or_zero(char):	
-				choices.remove('8')
-			else:
-				choices.remove('0')
-# 		if all(d in choices for d in ['9','8']):
-# 			if not nine_or_eight(char):	
-# 				choices.remove('9')
-# 			else:
-# 				choices.remove('8')
-# 		if all(d in choices for d in ['9','0']):
-# 			if not nine_or_zero(char):	
-# 				choices.remove('9')
-# 			else:
-# 				choices.remove('0')
-
-		if len(choices) > 1:
-			d = "(" + "/".join(map(str,choices)) + ")"
-		elif len(choices) == 0:
-			if len(digits) == 0:
-				d = ""
-			else:
-				d = "X"
-		else:
-			d = str(choices[0])
-		digits += d
-	return digits
-
-
-	### Ugly hacks for now ###
-
-def is_zero(image):
-	arr = pil_to_np(image, mode="L")
-	
-	hs = int(arr.shape[0]*0.3)
-	he = int(arr.shape[0]*0.7)
-	ws = int(arr.shape[1]*0.4)
-	we = int(arr.shape[1]*0.6)
-	
-	center = arr[hs:he,ws:we]
-	
-	np_to_pil(center).show()
-	
-	if not np.any(center < 255):
-		return True	
-
-def six_or_zero(image):
-	arr = pil_to_np(image, mode="L")
-	middle = arr[:,arr.shape[1] // 2]
-
-	return colour_sections(middle, "Black") == 3 
-
-def four_or_zero(image):
-	arr = pil_to_np(image, mode="L")
-	middle = arr[:,arr.shape[1] // 2]
-
-	return colour_sections(middle, "White") == 3
-
-def eight_or_zero(image):
-	return six_or_zero(image)
-
-def six_or_eight(image, threshold=None):
-	image = np_to_pil(image)
-	image = image.crop((image.width // 2, 0, image.width, image.height))
-	arr = pil_to_np(image, mode="L")
-	if not threshold:
-		threshold = round(image.height * 0.15 + 0.5)
-	counter = 0
-	for row in arr:
-		if not np.any(row == 0):
-			counter +=1
-		if counter >= threshold:
-			return True
-	return False
-
-def nine_or_eight(image, threshold=None):
-	image = np_to_pil(image)
-	image = image.crop((0, 0, image.width // 2, image.height))
-	arr = pil_to_np(image, mode="L")
-	if not threshold:
-		threshold = round(image.height * 0.15 + 0.5)
-	counter = 0
-	for row in arr:
-		if not np.any(row == 0):
-			counter +=1
-		if counter >= threshold:
-			return True
-	return False
-
-def nine_or_zero(image, threshold=None):
-	return nine_or_eight(image, threshold)
-
+def recognize_digits(image, binary_threshold=110, *args, **kwargs):
+	return recognition.recognize_digits(image, binary_threshold, *args, **kwargs)
 
 	### Wrappers ###
 

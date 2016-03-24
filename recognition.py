@@ -1,102 +1,134 @@
-import random
+import os
+import time
+import pickle
+
+import graphics
 
 from pybrain.tools.shortcuts import buildNetwork
 from pybrain.supervised.trainers import BackpropTrainer
 from pybrain.datasets import SupervisedDataSet
 from pybrain.structure import TanhLayer, SoftmaxLayer
-import graphics
-import numpy as np
-import pickle
-import os
-import time
 
-NET_PATH = 'nnet'
+import logging					# ugly fix
+logging.root.handlers = []		# ugly fix
+from logger import Logger
+logger = Logger(__name__, Logger.INFO)
 
-def build_network(inputs=25, layers=3, outputs=10, bias=False, *args, **kwargs):
-	print("Creating a new network")
+NET_PATH = 'neural/nnet_digits.pickle'
+TRAINING_SET_PATH = 'neural/nnet_digits_training.pickle'
+
+INPUTS = 25
+OUTPUTS = 10
+
+NETWORK = None
+TRAINING_SET = None
+
+def build_network(inputs=INPUTS, layers=3, outputs=OUTPUTS, bias=False, *args, **kwargs):
+	logger.info("Creating a new network")
 	net = buildNetwork(inputs, layers, outputs, bias=bias, *args, **kwargs)
-	net.training_set = SupervisedDataSet(inputs, outputs)
+# 	net.training_set = SupervisedDataSet(inputs, outputs)
 	return net
 
 def get_network(path=NET_PATH, *args, **kwargs):
 	if os.path.isfile(path):# and False:
-		print("Loading the network from disk.")
+		logger.info("Loading the network from disk.")
 		with open(path, 'rb') as f:
 			net = pickle.load(f)
 		net.sorted = False
 		net.sortModules()
-		print("Length of the training set: %d" % len(net.training_set))
+		logger.info("Length of the training set: %d" % len(net.training_set))
 	else:
 		net = build_network(*args, **kwargs)
 		
 	return net
 
-def update_training_set(image, digit, net=None, new=False):
+def update_training_set(image, digits=None, binary_threshold=110, net=None, new=False):
 	if not net:
 		net = NETWORK
-	if new or not hasattr(net, 'training_set'):
-		net.training_set = SupervisedDataSet(net.training_set.indim, net.training_set.outdim)
-	image = graphics.np_to_pil(image)
-	image = graphics.crop_to_bounding_box(image)
-# 	image.show()
-	image = image.resize((5,5), 1)
-# 	image.show()
-	outputs = [0]*10
-	outputs[int(digit)] = 1
-	inputs = graphics.pil_to_np(image).flatten()
-# 	print("Digit: %s" % digit)
-# 	print("inputs: ", inputs)
-# 	print("outputs: ", outputs)
-	net.training_set.addSample(inputs, outputs)
-	print("Added a sample for digits %s. Training set size: %d" % (digit, len(net.training_set)))
+	if new:
+		training_set = SupervisedDataSet(INPUTS, OUTPUTS)
+	elif not TRAINING_SET:
+		if os.path.isfile(TRAINING_SET_PATH):
+			with open(TRAINING_SET_PATH, 'rb') as f:
+				training_set = pickle.load(f)
+		else:
+			training_set = SupervisedDataSet(INPUTS, OUTPUTS)
+	else:
+		training_set = TRAINING_SET
+		
+	if not digits:
+		image.show()
+		digits = input("What are the characters in this picture? ")
+	logger.debug("Image is supposed to have the following string: %s" % digits)
+	
+	if len(digits) == 1:
+		chars = [image]
+	else:
+		chars = graphics.image_characters(image, binary_threshold)
+	
+	if len(digits) != len(chars):
+		logger.error(("The number of characters is not the same ("
+			"recognized: %d, supposed to be: %d ('%s'))! Dou suru kana~ "
+			"Skipping this image.") % (len(chars), len(digits), digits))
+		input()
+		return
+	
+	for i, char in enumerate(chars):
+		d = digits[i]
+		if d not in "0123456789":
+			logger.debug("Not adding char %s to the training set" % d)
+			continue
+		inputs = graphics.pil_to_np(char.resize((5,5), 1)).flatten()
+		outputs = [0] * 10
+		outputs[int(d)] = 1
+		training_set.addSample(inputs, outputs)
+		logger.debug("Added a sample for digits %s. Training set size: %d" % (d, len(training_set)))
+	
+	with open(TRAINING_SET_PATH, 'wb') as f:
+		pickle.dump(training_set, f)
+	
 
-def train(reps, net=None):
+def train(reps, training_set=None, net=None):
 	if not net:
 		net = NETWORK
-	trainer = BackpropTrainer(net, net.training_set)
-	print("Benkyou benkyou benkyou...")
+	if not training_set:
+		training_set = TRAINING_SET
+
+	trainer = BackpropTrainer(net, training_set)
+	logger.info("Benkyou benkyou benkyou...")
 	for i in range(reps):
 		c = trainer.train()
 		if i % 10 == 0:
-			print("Error: %.5f" % c)
+			print("Epoch %3d, error: %.5f" % c)
 
-def recognize_digits(image, binary_threshold=110, *args, **kwargs):
-	image.show()
+def is_digit(char):
+	return True
+
+def recognize_digits(image, binary_threshold=110, show=False, *args, **kwargs):
+	if show:
+		image.show()
 	chars = graphics.image_characters(image, binary_threshold)
 	digits = ""
 	for char in chars:
 		char = graphics.crop_to_bounding_box(char)
-# 		char.show()
+		if not is_digit(char):
+			digits += recognize_char(char)
+			continue
 		char = char.resize((5,5), 1)
 		inputs = graphics.pil_to_np(char).flatten()
-# 		print(inputs)
-		r = NETWORK.activate(inputs)
-# 		print(r)
-		digits += str(r.argmax())
-# 		input("digits so far: %s" % digits)
-# 	print("Digits recognized: %s" % digits)
+		output = NETWORK.activate(inputs)
+		top = output.argmax()
+		digits += str(top)
+		
+		second = output.argpartition(-2)[-2:-1][0]
+		
+		logger.debug("Top two values: %.3f (%s), %.3f (%s). Ratio: %.3f" % (
+			output[top], str(top), output[second], str(second),
+			output[second]/output[top]))
 	return digits
 
-def create_dataset():
-	for i in range(500):
-		ones = random.randint(0,25)
-		ds = [1]*ones + [0]*(25-ones)
-		random.shuffle(ds)
-		update_training_set(NETWORK, ds, int(ones > 12))
-
-def test():
-	t = time.time()
-	c = 0
-	for i in range(1000):
-		ones = random.randint(0,25)
-		ds = [1]*ones + [0]*(25-ones)
-		random.shuffle(ds)
-		r = NETWORK.activate(ds)[0]
-		if (int(ones > 12) == round(r)):
-			c += 1
-		
-	print("Network is correct %.3f%% of the time." % (c / 10))
-	print("Took %.3f seconds." % (time.time() - t))
+def recognize_char(image):
+	return "."
 	
 NETWORK = get_network(layers=25, bias=True, hiddenclass=TanhLayer, outclass=SoftmaxLayer)
 
