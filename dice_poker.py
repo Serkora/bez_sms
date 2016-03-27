@@ -5,18 +5,39 @@ COMBINATIONS = ["High", "Pair", "Two pairs", "Three of a kind", "Small straight"
 				"Big straight", "Even", "Odd", "Full house", "Four of a kind", "Poker"]
 
 class Table(object):
-	def __init__(self, players, ai_seats, small_blind=2):
+	def __init__(self, players, ai_seats, small_blind=2, imaginary=False, imaginator=None):
+		self.imaginary=imaginary
+		self.imaginator=imaginator
 		self.players = self.generate_players(players, ai_seats)
+		self.turns = ['preflop', 'flop']
+		self.dealer = -1
 		self.small_blind = small_blind
 		self.round_pot = 0
 		self.turn_pot = 0
 		self.max_bet = 0
 		self.dice = None
 	
+	def play_round(self):
+		self._print("------------------\nNew Round!")
+		for turn in self.turns:
+			self.start_turn(turn)
+			self.make_turn(turn)
+			winners = self.end_turn(turn)
+			if winners:
+				return winners
+	
+	def _print(self, *args):
+		# will be used to render the text in gui later
+		if self.imaginary: return
+		print(*args)
+	
 	def generate_players(self, players, ai_seats):
 		plrs = []
 		for seat in range(players):
-			plrs.append(Player(self, seat, seat in ai_seats))
+			player = Player(self, seat, seat in ai_seats)
+			if self.imaginary and seat == self.imaginator.seat:
+				player.imaginator = True
+			plrs.append(player)
 		return plrs
 	
 	def update(self, cycle=False):
@@ -34,52 +55,72 @@ class Table(object):
 		active = [p for p in self.players if p.active]
 		return active, str(self.dice), self.round_pot + self.turn_pot, self.max_bet
 	
-	def next_dealer(self):
-		self.players.append(self.players.pop(0))		# second player becomes first etc
+	def print_move(self, player, move):
+		name = "Player %d" % player.seat
+		if move == "Fold":
+			text = "%s folded" % name
+		elif move == "Check":
+			text = "%s checked" % name
+		elif move == "Call":
+			text = "%s called %d coins" % (name, self.max_bet)
+		elif move[0] == "Bet":
+			text = "%s bet %d coins" % (name, move[1])
+		elif move[0] == "Raise":
+			text = "%s raised %d coins" % (name, move[1])
+		
+		self._print(text)
+	
+	def rotate_dealer(self):
+		self.dealer = (self.dealer + 1) % len(self.players)
+		if not self.imaginary:
+			self._print("Player %d is the dealer" % self.dealer)
+	
+	def deal_dice(self):
+		for player in self.players:
+			player.dice = tuple(np.random.choice(range(1,7),2))	
+			if self.imaginary and player.seat == self.imaginator.seat:
+				player.dice = self.imaginator.dice
+	
+	def blinds(self):
+		self.players[(self.dealer + 1) % len(self.players)].make_bet(self.small_blind)
+		self.players[(self.dealer + 2) % len(self.players)].make_bet(self.small_blind * 2)
 	
 	def start_turn(self, turn):
-		print(" === Starting turn %s ===" % turn)
+		self._print(" === Starting turn %s ===" % turn)
 		if turn == "preflop":
+			self.dice = None
 			self.round_pot = 0
 			self.turn_pot = 0
 			self.max_bet = 0
 			for player in self.players: 
 				player.bet = 0 
 				player.active = True
-			self.deal_dice()
+			if not self.imaginary:
+				self.rotate_dealer()
 			self.blinds()
+			self.deal_dice()
 		elif turn == "flop":
-			self.dice = tuple(np.random.choice(range(1,7),5))	
+			if self.imaginary and self.dice: return
+			self.dice = tuple(np.random.choice(range(1,7),5))
 	
 	def make_turn(self, turn):
 		cycle = False
-		i = 0
+		first = (self.dealer + 3) % len(self.players)
+		i = first
+# 		print("first: ", first, "len players: ", len(self.players))
 		self.update()
 		while True:
-			if i == len(self.players) - 1:
-				cycle = True
+# 			print("making turn %s" % turn)
+# 			print("player %d is making a move, active players: %d" % (i, len([p for p in self.players if p.active])))
 			if self.players[i].active:
-				self.players[i].turn(self, turn)
+				move = self.players[i].turn(self, turn)
+				self.print_move(self.players[i], move)
+# 			print("players: ", len(self.players))
+			i = (i + 1) % len(self.players)
+			if i == first:
+				cycle = True
 			if self.update(cycle):
 				break
-			i = (i + 1) % len(self.players)
-		
-		
-# 		finished = False		
-# 		while not finished:
-# 			if self.update(cycle):
-# 				finished = True
-# 				break
-# 			for player in self.players:
-# 				if not player.active:
-# 					continue
-# 				player.turn(self, turn)
-# 				if self.update(cycle):
-# 					finished = True
-# 					break
-# 			bets = (p.bet for p in self.players if p.active)
-# 			if len(set(bets)) == 1:
-# 				break
 	
 	def end_turn(self, turn):
 		for player in self.players:
@@ -90,16 +131,18 @@ class Table(object):
 
 		active = self.get_info()[0]
 		if len(active) == 1:
-			print("Player %d has won %d coins!" % (active[0].seat, self.round_pot))
+			self._print("%s has won %d coins!" % (active[0].get_name(), self.round_pot))
 			active[0].stack += self.round_pot
-			return True
+			return (active[0].seat,)
 
 		if turn == "flop":
 			highest = ((None, (-1, (0,0,0,0,0))),)		# ((player, best_hand), )
 			i = 0
 			for player in self.players:
+				if not player.active:
+					continue
 				best_hand = player.calculate_hand_score(self.dice)
-				print("Player %s best hand: %s, dice: " % (player.seat, 
+				self._print("Player %s best hand: %s, dice: " % (player.seat, 
 					COMBINATIONS[best_hand[0]]), best_hand)
 				if best_hand[0] > highest[0][1][0]:
 					highest = ((player, best_hand),)
@@ -109,24 +152,23 @@ class Table(object):
 						highest = ((player, best_hand),)
 					elif cmp == 0:
 						highest += ((player, best_hand),)
+			
 			if len(highest) == 1:
-				print("Player %d won %d coins with %s, dice: " % (highest[0][0].seat, 
+				self._print("%s won %d coins with %s, dice: " % (highest[0][0].get_name(), 
 					self.round_pot, COMBINATIONS[highest[0][1][0]]), highest[0][1][1])
 				highest[0][0].stack += self.round_pot
+				winners = (highest[0][0].seat,)
 			else:
 				split = self.round_pot // len(highest)
-				print("Several players won %d coins each: " % split, highest)
+				self._print("Several players won %d coins each: " % split, highest)
 				for e in highest:
 					e[0].stack += split
-			return True
-	
-	def deal_dice(self):
-		for player in self.players:
-			player.dice = tuple(np.random.choice(range(1,7),2))	
-	
-	def blinds(self):
-		self.players[0].make_bet(self.small_blind)
-		self.players[1].make_bet(self.small_blind * 2)
+					
+				# not exactly correct, but at least no money disappear
+				highest[0][0].stack += self.round_pot % len(highest)
+				
+				winners = tuple(e[0].seat for e in highest)
+			return winners
 	
 
 class Player(object):
@@ -138,6 +180,8 @@ class Player(object):
 		self.stack = stack
 		self.bet = 0
 		self.active = True
+		self.funcs = [self.make_fold, self.make_check, self.make_call, self.make_bet, self.make_raise]
+		self.imaginator = False
 	
 	def __repr__(self):
 		text = "AI " if self.ai else "Human "
@@ -145,34 +189,41 @@ class Player(object):
 		text += "Dice: %d, %d" % (self.dice)
 		return text
 
+	def get_name(self):
+		return "Player %d (%s)" % (self.seat, "AI" if self.ai else "Human")
+
 	def make_fold(self):
 		self.active = False
+		return "Fold"
 
 	def make_check(self):
 		pass
+		return "Check"
 
 	def make_call(self):
 		self.make_bet(self.table.max_bet)
+		return "Call"
 
 	def make_bet(self, value=None):
 		if value is None:
 			value = self.table.small_blind * 2
 		self.stack -= (value - self.bet)
 		self.bet = value
+		return "Bet", value
 
 	def make_raise(self, value=None):
 		if value is None:
 			value = self.table.small_blind * 4
 		self.make_bet(value)
+		return "Raise", value
 
 	def calculate_hand_score(self, dice):
 		if len(dice) < 3:
 			raise ValueError("Can't calculate hand score with less than 5 dice!")
 		elif self.dice == (0,0):
 			raise ValueError("Can't caluclate hand score without own dice!")
-# 		print("Your dice: %d, %d; Table dice: %s" % (self.dice + (", ".join(map(str, dice)),)))
 		flop_combinations = itertools.permutations(dice, 3)
-		best_hand = (0, ())
+		best_hand = (-1, ())
 		for flop_three in flop_combinations:
 			cmb = self.dice + flop_three
 			score = self.calculate_combination_score(cmb)
@@ -195,11 +246,12 @@ class Player(object):
 		
 		if len(dice_set) == 1:		# (a,a,a,a,a)
 			# poker
-			return 10				# definitely a poker
+			return 10
 		elif len(dice_set) == 2:	# (a,a,b,b,b), (a,a,a,b,b), (a,b,b,b,b), (a,a,a,a,b)
 			# four of a kind or full house
-			if len(set(dice_sorted[1::2])) == 1:
-				return 9			# if elements 1 and 3 are equal, the four of a kind
+# 			if len(set(dice_sorted[1::2])) == 1:
+			if dice_sorted[1] == dice_sorted[3]:
+				return 9			# if elements 1 and 3 are equal, then four of a kind
 			else:
 				return 8			# otherwise just a full house
 		elif len(dice_set) == 3:
@@ -267,38 +319,97 @@ class Player(object):
 			return 0
 		else: 
 			return -1
-	
-	def turn(self, table, turn):
-		# turn is "preflop" or "flop"
-		if not self.active:
-			return
-
-		if self.ai:
-			self._ai_turn(table, turn)
-		else:
-			self._human_turn(table, turn)
-	
-	def _ai_turn(self, table, turn):
-		pass
 		
-	def _human_turn(self, table, turn):
-		print("Player %d turn!" % self.seat)
-		active, dice, pot, max_bet = self.table.get_info()
-		print("Active players: %d, Dice: %s, Pot: %d, Max bet: %d" % (
-			len(active), dice, pot, max_bet))
-# 		print(active, dice, pot, max_bet)
-		print("Your dice: %s, Your stack: %d, your current bet: %d" % (
-			str(self.dice), self.stack, self.bet))
+	def get_choices(self, table):
+		# not pretty yet
 		choices = {0: "Fold", 1: "Check", 2: "Call %d" % table.max_bet, 3: "Bet bb", 4: "raise to 2 bb"}
-		funcs = [self.make_fold, self.make_check, self.make_call, self.make_bet, self.make_raise]
+# 		if self.imaginator:
+# 			choices.pop(0)
+
 		if self.bet != table.max_bet:
 			choices.pop(1)
 		else:
 			choices.pop(2)
+
 		if table.max_bet != 0:
 			choices.pop(3)
 		if table.max_bet == table.small_blind * 4:
 			choices.pop(4)
+		return choices
+	
+	def turn(self, table, turn):
+		# turn is "preflop" or "flop"
+		if not self.active:
+			return False
+
+		if self.ai:
+			return self._ai_turn(table, turn)
+		else:
+			return self._human_turn(table, turn)
+	
+	def _ai_turn(self, table, turn):
+		if table.imaginary:
+			choices = self.get_choices(table)
+			choice = np.random.choice(list(choices.keys()))
+			return self.funcs[choice]()
+		else:
+			# imagine a table, do monte-carlo stuff
+			print("AI turn")
+			wins = 0
+			iters = 100
+			im_table = Table(len(table.players), range(len(table.players)), imaginary=True, imaginator=self)
+			im_table.turns = im_table.turns[im_table.turns.index(turn):]
+			im_table.dealer = table.dealer
+			if table.dice:
+				# if current table has dice, we need to image the same dice
+				# that also means that the turn is not preflop and players
+				# will not be given any dice, thus a manual deal_dice call
+				im_table.dice = table.dice
+				im_table.deal_dice()
+			for i in range(iters):
+				# Make player state on the imaginary table equal to the real table
+				for i in range(len(table.players)):
+					im_table.players[i].active = table.players[i].active
+				winners = im_table.play_round()
+				if self.seat in winners:
+					wins += 1
+			chance = wins / iters
+			print(("Out of %d random games, I (player %d) have a %.3f chance of winning") % (
+				iters, self.seat, chance))
+# 			print(im_table.players)
+# 			im_table.deal_dice()
+# 			print("self dice: ", self.dice)
+# 			print("imaginary self dice: ", im_table.players[self.seat].dice)
+# 			im_table.rotate_dealer()
+# 			input("...")
+# 			print("AI self.dice:", self.dice)
+			choices = list(self.get_choices(table).keys())
+			
+			if chance <= 0.3:
+				return self.make_fold()
+			if 1 in choices:
+				choices.remove(0)
+			min_choice = 0
+			if chance >= 0.5 and (2 in choices or 3 in choices or 4 in choices):
+				min_choice = 2
+			if chance >= 0.7 and (3 in choices or 4 in choices):
+				min_choice = 3
+			while True:
+				choice = np.random.choice(choices)
+				if choice >= min_choice:
+					break
+			return self.funcs[choice]()
+		
+	def _human_turn(self, table, turn):
+		print("Your turn!")
+		active, dice, pot, max_bet = self.table.get_info()
+		print("Active players: %d, Dice: %s, Pot: %d, Max bet: %d" % (
+			len(active), dice, pot, max_bet))
+		print("Your dice: %s, Your stack: %d, your current bet: %d" % (
+			str(self.dice), self.stack, self.bet))
+		
+		choices = self.get_choices(table)
+		
 		while True:
 			for key, choice in choices.items(): 
 				print("%d - %s" % (key, choice))
@@ -310,8 +421,7 @@ class Player(object):
 				continue
 
 			if choice in choices:
-				funcs[choice]()
-				break
+				return self.funcs[choice]()
 			else:
 				print("Incorrect option!")
 	
@@ -319,50 +429,11 @@ class Player(object):
 def main():
 # 	dealer = 0
 	player_number = 2
-	ai_seats = (5,)							# seat #s start from 0
+	ai_seats = (1,)							# seat #s start from 0
 	table = Table(player_number, ai_seats)
-# 	print(table.players)
-	
-# 	p = table.players[0]
-# 	prev_score = -1
-# 	prev_comb = (1,2,3,4,5)
-# 	c = (2,5,3,4,6)
-# 	score = p.calculate_combination_score(c)
-# 	print("%s — %s" % (", ".join(map(str, c)), COMBINATIONS[score]))	
-# 	return
-# 	for i in range(20):
-# 		c = np.random.choice((1,2,3,4,5,6), 5)
-# 		score = p.calculate_combination_score(c)
-# 		print("%s — %s" % (", ".join(map(str, c)), COMBINATIONS[score]))
-# 		if score == prev_score:
-# 			cmp = p.compare_same_combination(score, c, prev_comb)
-# 			if cmp == 1:
-# 				print(c, " is higher, than ", prev_comb)
-# 			elif cmp == 0:
-# 				print(c, " is the same as ", prev_comb)
-# 			elif cmp == -1:
-# 				print(c, " is weaker, than ", prev_comb)
-# 		prev_score = score
-# 		prev_comb = c
-# 	
-# 	return
-# 	for i in range(20):
-# 		p.dice = tuple(np.random.choice((1,2,3,4,5,6), 2))
-# 		flop = np.random.choice((1,2,3,4,5,6), 5)
-# 		best_hand = p.calculate_hand_score(flop)
-# 		print(p.dice, flop, best_hand)
-# 	return
+
 	while True:
-		print("------------------\nNew Round!")
-		table.next_dealer()
-		for turn in ["preflop", "flop"]:
-			table.start_turn(turn)
-			table.make_turn(turn)
-			if table.end_turn(turn):
-				break
-		
-# 		dealer += 1
-# 		dealer %= players
+		table.play_round()
 
 if __name__ == "__main__":
 	main()
